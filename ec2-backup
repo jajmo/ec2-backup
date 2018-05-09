@@ -1,0 +1,57 @@
+#!/bin/sh
+
+# Jason Ajmo and Bradford Smith
+# CS 615 HW6 ec2-backup
+
+USAGE="usage: $0 [-h] [-l filter] [-r filter] [-v volume-id] dir"
+
+usage () {
+    # print usage message and exit failed
+    echo "$USAGE"
+    exit 1
+}
+
+help_message () {
+    # print usage message with help text and exit success
+    echo "$USAGE"
+    cat<<EOF
+ -h             Print this help message.
+ -l filter      Pass data through the given filter command on the local host
+                before copying the data to the remote system.
+ -r filter      Pass data through the given filter command on the remote host
+                before writing the data to the volume.
+ -v volume-id   Use the given volume instead of creating a new one.
+EOF
+    exit 0
+}
+
+parse_input () {
+    while getopts hl:r:v: flag; do
+        case $flag in
+            h) help_message;;
+            l) LOCAL_FILTER="$OPTARG";;
+            r) REMOTE_FILTER="$OPTARG";;
+            v) VOLUME="$OPTARG";;
+            \?) usage;;
+        esac
+    done
+    shift $(expr $OPTIND - 1)
+
+    # check for and set required 'dir' parameter
+    [ -z "$1" ] && usage || DIR=$1
+    [ -d "$DIR" ] || { echoerr "'$DIR' is not a directory"; exit 1; }
+}
+
+echoerr () {
+    # same as 'echo' but print to STDERR
+    1>&2 echo "$@"
+}
+
+main () {
+    parse_input "$@"
+
+    # TODO: everything
+}
+
+# call main function
+main "$@"
