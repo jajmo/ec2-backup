@@ -4,15 +4,18 @@
 # CS 615 HW6 ec2-backup
 
 USAGE="usage: $0 [-h] [-l filter] [-r filter] [-v volume-id] dir"
+REGION="us-east-1a"
+VOLUME=""
+LOCAL_FILTER=""
+REMOTE_FILTER=""
+DIR=""
 
 usage () {
-    # print usage message and exit failed
     echo "$USAGE"
     exit 1
 }
 
 help_message () {
-    # print usage message with help text and exit success
     echo "$USAGE"
     cat<<EOF
  -h             Print this help message.
@@ -37,7 +40,6 @@ parse_input () {
     done
     shift $(expr $OPTIND - 1)
 
-    # check for and set required 'dir' parameter
     [ -z "$1" ] && usage || DIR=$1
     [ -d "$DIR" ] || { echoerr "'$DIR' is not a directory"; exit 1; }
 }
@@ -49,6 +51,12 @@ echoerr () {
 
 main () {
     parse_input "$@"
+
+    if [ "$VOLUME" = "" ]; then
+		SIZE=$(/usr/bin/du -gs "$DIR" | /usr/bin/awk '{ print $1 }')
+		OUTPUT=$(/usr/pkg/bin/aws ec2 create-volume --output text --availability-zone "$REGION" --size "$SIZE")
+		VOLUME=$(echo "$OUTPUT" | /usr/bin/awk '{ print $6 }')
+    fi
 
     # TODO: everything
 }
