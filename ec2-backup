@@ -11,12 +11,12 @@ REMOTE_FILTER=""
 DIR=""
 
 usage () {
-    echo "$USAGE"
+    command -p echo "$USAGE"
     exit 1
 }
 
 help_message () {
-    echo "$USAGE"
+    command -p echo "$USAGE"
     cat<<EOF
  -h             Print this help message.
  -l filter      Pass data through the given filter command on the local host
@@ -46,29 +46,29 @@ parse_input () {
 
 echoerr () {
     # same as 'echo' but print to STDERR
-    1>&2 echo "$@"
+    1>&2 command -p echo "$@"
 }
 
 main () {
     parse_input "$@"
-    SIZE=$(/usr/bin/du -gs "$DIR" 2> /dev/null | /usr/bin/awk '{ print $1 * 2 }')
+    SIZE=$(command -p du -gs "$DIR" 2> /dev/null | command -p awk '{ print $1 * 2 }')
 
     if [ -z "$VOLUME" ]; then
         AVAILABILITY_ZONE="$REGION"
-        OUTPUT=$(/usr/pkg/bin/aws ec2 create-volume --output text --availability-zone "$REGION" --size "$SIZE")
-        VOLUME=$(/bin/echo "$OUTPUT" | /usr/bin/awk '{ print $6 }')
+        OUTPUT=$(command -p aws ec2 create-volume --output text --availability-zone "$REGION" --size "$SIZE")
+        VOLUME=$(command -p echo "$OUTPUT" | command -p awk '{ print $6 }')
     else
-        VOLUME_INFO=$(/usr/pkg/bin/aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
-        [ "$(/bin/echo "$VOLUME_SIZE" | /usr/bin/grep "error")" != "" ] && { echoerr "Invalid volume ID"; exit 1; }
-        VOLUME_SIZE=$(/bin/echo "$VOLUME_INFO" | /usr/bin/awk '{ print $2 }')
-        STATE=$(/bin/echo "$VOLUME_INFO" | /usr/bin/awk '{ print $3 }')
-        AVAILABILITY_ZONE=$(/bin/echo "$VOLUME_INFO" | /usr/bin/awk '{ print $1 }')
+        VOLUME_INFO=$(command -p aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
+        [ "$(command -p echo "$VOLUME_SIZE" | command -p grep "error")" != "" ] && { echoerr "Invalid volume ID"; exit 1; }
+        VOLUME_SIZE=$(command -p echo "$VOLUME_INFO" | command -p awk '{ print $2 }')
+        STATE=$(command -p echo "$VOLUME_INFO" | command -p awk '{ print $3 }')
+        AVAILABILITY_ZONE=$(command -p echo "$VOLUME_INFO" | command -p awk '{ print $1 }')
         [ "$VOLUME_SIZE" -lt "$SIZE" ] && { echoerr "Volume must be at least $SIZE GB"; exit 1; }
         [ "$STATE" != "available" ] && { echoerr "Volume is unavailable"; exit 1; }
         exit 0
     fi
 
-    INSTANCE_ID=$(/usr/pkg/bin/aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | /usr/bin/awk 'FNR == 2 { print $7 }')
+    INSTANCE_ID=$(command -p aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | command -p awk 'FNR == 2 { print $7 }')
 
     echo "$INSTANCE_ID"
 }
