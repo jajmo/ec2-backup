@@ -38,7 +38,7 @@ parse_input () {
             \?) usage;;
         esac
     done
-    shift $(expr $OPTIND - 1)
+    shift $((OPTIND - 1))
 
     [ -z "$1" ] && usage || DIR=$1
     [ -d "$DIR" ] || { echoerr "'$DIR' is not a directory"; exit 1; }
