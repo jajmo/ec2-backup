@@ -59,8 +59,8 @@ main () {
         VOLUME=$(command -p echo "$OUTPUT" | command -p awk '{ print $6 }')
     else
         VOLUME_INFO=$(command -p aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
-        [ "$(command -p echo "$VOLUME_SIZE" | command -p grep "error")" != "" ] && { echoerr "Invalid volume ID"; exit 1; }
         VOLUME_SIZE=$(command -p echo "$VOLUME_INFO" | command -p awk '{ print $2 }')
+        command -p echo "$VOLUME_SIZE" | command -p grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
         STATE=$(command -p echo "$VOLUME_INFO" | command -p awk '{ print $3 }')
         AVAILABILITY_ZONE=$(command -p echo "$VOLUME_INFO" | command -p awk '{ print $1 }')
         [ "$VOLUME_SIZE" -lt "$SIZE" ] && { echoerr "Volume must be at least $SIZE GB"; exit 1; }
