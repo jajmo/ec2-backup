@@ -53,7 +53,7 @@ main () {
     parse_input "$@"
     SIZE=$(/usr/bin/du -gs "$DIR" 2> /dev/null | /usr/bin/awk '{ print $1 * 2 }')
 
-    if [ "$VOLUME" = "" ]; then
+    if [ -z "$VOLUME" ]; then
         AVAILABILITY_ZONE="$REGION"
         OUTPUT=$(/usr/pkg/bin/aws ec2 create-volume --output text --availability-zone "$REGION" --size "$SIZE")
         VOLUME=$(/bin/echo "$OUTPUT" | /usr/bin/awk '{ print $6 }')
@@ -68,7 +68,7 @@ main () {
         exit 0
     fi
 
-    INSTANCE_ID=$(/usr/pkg/bin/aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | /usr/bin/awk 'FNR == 2 { print $7 '})
+    INSTANCE_ID=$(/usr/pkg/bin/aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | /usr/bin/awk 'FNR == 2 { print $7 }')
 
     echo "$INSTANCE_ID"
 }
