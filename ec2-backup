@@ -4,7 +4,6 @@
 # CS 615 HW6 ec2-backup
 
 USAGE="usage: $0 [-h] [-l filter] [-r filter] [-v volume-id] dir"
-REGION="us-east-1a"
 VOLUME=""
 LOCAL_FILTER=""
 REMOTE_FILTER=""
@@ -54,8 +53,8 @@ main () {
     SIZE=$(command -p du -gs "$DIR" 2> /dev/null | command -p awk '{ print $1 * 2 }')
 
     if [ -z "$VOLUME" ]; then
-        AVAILABILITY_ZONE="$REGION"
-        OUTPUT=$(command -p aws ec2 create-volume --output text --availability-zone "$REGION" --size "$SIZE")
+        AVAILABILITY_ZONE=$(command -p aws ec2 describe-availability-zones --output text | command -p sed '1q;d' | command -p awk '{ print $4 }')
+        OUTPUT=$(command -p aws ec2 create-volume --output text --availability-zone "$AVAILABILITY_ZONE" --size "$SIZE")
         VOLUME=$(command -p echo "$OUTPUT" | command -p awk '{ print $6 }')
     else
         VOLUME_INFO=$(command -p aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
