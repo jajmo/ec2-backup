@@ -53,9 +53,9 @@ main () {
     parse_input "$@"
 
     if [ "$VOLUME" = "" ]; then
-		SIZE=$(/usr/bin/du -gs "$DIR" | /usr/bin/awk '{ print $1 }')
+		SIZE=$(/usr/bin/du -gs "$DIR" 2> /dev/null | /usr/bin/awk '{ print $1 * 2 }')
 		OUTPUT=$(/usr/pkg/bin/aws ec2 create-volume --output text --availability-zone "$REGION" --size "$SIZE")
-		VOLUME=$(echo "$OUTPUT" | /usr/bin/awk '{ print $6 }')
+		VOLUME=$(/bin/echo "$OUTPUT" | /usr/bin/awk '{ print $6 }')
     fi
 
     # TODO: everything
