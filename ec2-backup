@@ -46,6 +46,10 @@ parse_input () {
     [ -d "$DIR" ] || { echoerr "'$DIR' is not a directory"; exit 1; }
 }
 
+debug_print () {
+	[ -z $EC2_BACKUP_VERBOSE ] || echo $1
+}
+
 echoerr () {
     # same as 'echo' but print to STDERR
     1>&2 echo "$@"
@@ -56,10 +60,12 @@ main () {
     SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
 
     if [ -z "$VOLUME" ]; then
+		debug_print "Using provided volume ID"
         AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone "$AVAILABILITY_ZONE" --size "$SIZE")
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
+		debug_print "Creating new volume"
         VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
         VOLUME_SIZE=$(echo "$VOLUME_INFO" | awk '{ print $2 }')
         echo "$VOLUME_SIZE" | grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
@@ -70,14 +76,17 @@ main () {
     fi
 
 	# TODO: Error check $INSTANCE_ID
+	debug_print "Starting Linux instance"
     INSTANCE_ID=$(aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | awk 'FNR == 2 { print $7 }')
 
+	debug_print "Waiting for instance to boot"
     while [ 1 ];
 	do
 		STATE=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}' | awk '{ print $3 }')
 		[ "$STATE" = "running" ] && break
 	done
 
+	debug_print "Waiting for volume to attach to instance"
 	ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME" --instance-id "$INSTANCE_ID" --device /dev/sdf)
 	DEVICE=$(echo "$ATTACH_OUTPUT" | awk '{ print $2 }')
 	while [ 1 ];
