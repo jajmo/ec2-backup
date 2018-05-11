@@ -60,12 +60,12 @@ main () {
     SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
 
     if [ -z "$VOLUME" ]; then
-		debug_print "Using provided volume ID"
+		debug_print "Creating new volume"
         AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone "$AVAILABILITY_ZONE" --size "$SIZE")
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
-		debug_print "Creating new volume"
+		debug_print "Verifying provided volume ID"
         VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
         VOLUME_SIZE=$(echo "$VOLUME_INFO" | awk '{ print $2 }')
         echo "$VOLUME_SIZE" | grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
@@ -94,6 +94,18 @@ main () {
 		STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{State:State}')
 		[ "$STATE" = "in-use" ] && break
 	done
+
+	INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{Address:PublicDnsName}')
+	tar cf - "$DIR" &>/dev/null | ssh "$INSTANCE_IP" 'dd of="$DEVICE"'
+
+	if [ "$?" -ne 0 ]; then
+		# TODO: Tear down volume (if created) and instance
+		echoerr "SSH command failed";
+		exit 1;
+	fi
+
+	echo "$VOLUME"
+	exit 0
 }
 
 main "$@"
