@@ -47,7 +47,7 @@ parse_input () {
 }
 
 debug_print () {
-	[ -z $EC2_BACKUP_VERBOSE ] || echo $1
+    [ -z $EC2_BACKUP_VERBOSE ] || echo $1
 }
 
 echoerr () {
@@ -60,12 +60,12 @@ main () {
     SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
 
     if [ -z "$VOLUME" ]; then
-		debug_print "Creating new volume"
+        debug_print "Creating new volume"
         AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone "$AVAILABILITY_ZONE" --size "$SIZE")
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
-		debug_print "Verifying provided volume ID"
+        debug_print "Verifying provided volume ID"
         VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
         VOLUME_SIZE=$(echo "$VOLUME_INFO" | awk '{ print $2 }')
         echo "$VOLUME_SIZE" | grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
@@ -75,37 +75,37 @@ main () {
         [ "$STATE" != "available" ] && { echoerr "Volume is unavailable"; exit 1; }
     fi
 
-	# TODO: Error check $INSTANCE_ID
-	debug_print "Starting Linux instance"
+    # TODO: Error check $INSTANCE_ID
+    debug_print "Starting Linux instance"
     INSTANCE_ID=$(aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | awk 'FNR == 2 { print $7 }')
 
-	debug_print "Waiting for instance to boot"
+    debug_print "Waiting for instance to boot"
     while [ 1 ];
-	do
-		STATE=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}' | awk '{ print $3 }')
-		[ "$STATE" = "running" ] && break
-	done
+    do
+        STATE=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}' | awk '{ print $3 }')
+        [ "$STATE" = "running" ] && break
+    done
 
-	debug_print "Waiting for volume to attach to instance"
-	ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME" --instance-id "$INSTANCE_ID" --device /dev/sdf)
-	DEVICE=$(echo "$ATTACH_OUTPUT" | awk '{ print $2 }')
-	while [ 1 ];
-	do
-		STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{State:State}')
-		[ "$STATE" = "in-use" ] && break
-	done
+    debug_print "Waiting for volume to attach to instance"
+    ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME" --instance-id "$INSTANCE_ID" --device /dev/sdf)
+    DEVICE=$(echo "$ATTACH_OUTPUT" | awk '{ print $2 }')
+    while [ 1 ];
+    do
+        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{State:State}')
+        [ "$STATE" = "in-use" ] && break
+    done
 
-	INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{Address:PublicDnsName}')
-	tar cf - "$DIR" &>/dev/null | ssh "$INSTANCE_IP" 'dd of="$DEVICE"'
+    INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{Address:PublicDnsName}')
+    tar cf - "$DIR" &>/dev/null | ssh "$INSTANCE_IP" 'dd of="$DEVICE"'
 
-	if [ "$?" -ne 0 ]; then
-		# TODO: Tear down volume (if created) and instance
-		echoerr "SSH command failed";
-		exit 1;
-	fi
+    if [ "$?" -ne 0 ]; then
+        # TODO: Tear down volume (if created) and instance
+        echoerr "SSH command failed";
+        exit 1;
+    fi
 
-	echo "$VOLUME"
-	exit 0
+    echo "$VOLUME"
+    exit 0
 }
 
 main "$@"
