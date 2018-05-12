@@ -8,9 +8,10 @@ PATH=$(command -p getconf PATH)
 
 USAGE="usage: $0 [-h] [-l filter] [-r filter] [-v volume-id] dir"
 VOLUME=""
-LOCAL_FILTER="echo"
-REMOTE_FILTER="echo"
+LOCAL_FILTER=""
+REMOTE_FILTER=""
 DIR=""
+AVAILABILITY_ZONE=""
 
 usage () {
     echo "$USAGE"
@@ -46,6 +47,19 @@ parse_input () {
     [ -d "$DIR" ] || { echoerr "'$DIR' is not a directory"; exit 1; }
 }
 
+validate_volume () {
+	VOLUME="$1"
+
+	VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
+	AVAILABILITY_ZONE=$(echo "$VOLUME_INFO" | awk '{ print $1 }')
+	STATE=$(echo "$VOLUME_INFO" | awk '{ print $3 }')
+	VOLUME_SIZE=$(echo "$VOLUME_INFO" | awk '{ print $2 }')
+
+	echo "$VOLUME_SIZE" | grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
+	[ "$VOLUME_SIZE" -lt "$SIZE" ] && { echoerr "Volume must be at least $SIZE GB"; exit 1; }
+	[ "$STATE" != "available" ] && { echoerr "Volume is unavailable"; exit 1; }
+}
+
 debug_print () {
     [ -z $EC2_BACKUP_VERBOSE ] || echo $1
 }
@@ -66,13 +80,7 @@ main () {
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
         debug_print "Verifying provided volume ID"
-        VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
-        VOLUME_SIZE=$(echo "$VOLUME_INFO" | awk '{ print $2 }')
-        echo "$VOLUME_SIZE" | grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
-        STATE=$(echo "$VOLUME_INFO" | awk '{ print $3 }')
-        AVAILABILITY_ZONE=$(echo "$VOLUME_INFO" | awk '{ print $1 }')
-        [ "$VOLUME_SIZE" -lt "$SIZE" ] && { echoerr "Volume must be at least $SIZE GB"; exit 1; }
-        [ "$STATE" != "available" ] && { echoerr "Volume is unavailable"; exit 1; }
+        validate_volume $VOLUME
     fi
 
     # TODO: Error check $INSTANCE_ID
@@ -96,7 +104,7 @@ main () {
     done
 
     INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{Address:PublicDnsName}')
-    tar cf - "$DIR" &>/dev/null | ssh "$INSTANCE_IP" 'dd of="$DEVICE"'
+    tar cf - "$DIR" | ssh "$INSTANCE_IP" 'dd of="$DEVICE"'
 
     if [ "$?" -ne 0 ]; then
         # TODO: Tear down volume (if created) and instance
