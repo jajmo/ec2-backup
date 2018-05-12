@@ -50,14 +50,26 @@ parse_input () {
 validate_volume () {
     VOLUME="$1"
 
-    VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}' 2>&1)
+    VOLUME_INFO=$(aws ec2 describe-volumes --output text --volume-ids \
+        "$VOLUME" --query \
+        'Volumes[*].{Size:Size,AvailabilityZone:AvailabilityZone,State:State}'\
+        2>&1)
     AVAILABILITY_ZONE=$(echo "$VOLUME_INFO" | awk '{ print $1 }')
     STATE=$(echo "$VOLUME_INFO" | awk '{ print $3 }')
     VOLUME_SIZE=$(echo "$VOLUME_INFO" | awk '{ print $2 }')
 
-    echo "$VOLUME_SIZE" | grep -q "error" && { echoerr "Invalid volume ID"; exit 1; }
-    [ "$VOLUME_SIZE" -lt "$SIZE" ] && { echoerr "Volume must be at least $SIZE GB"; exit 1; }
-    [ "$STATE" != "available" ] && { echoerr "Volume is unavailable"; exit 1; }
+    if echo "$VOLUME_SIZE" | grep -q "error"; then
+        echoerr "Invalid volume ID"
+        exit 1
+    fi
+    if [ "$VOLUME_SIZE" -lt "$SIZE" ]; then
+        echoerr "Volume must be at least $SIZE GB"
+        exit 1
+    fi
+    if [ "$STATE" != "available" ]; then
+        echoerr "Volume is unavailable"
+        exit 1
+    fi
 }
 
 debug_print () {
@@ -75,8 +87,10 @@ main () {
 
     if [ -z "$VOLUME" ]; then
         debug_print "Creating new volume"
-        AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text | sed '1q;d' | awk '{ print $4 }')
-        OUTPUT=$(aws ec2 create-volume --output text --availability-zone "$AVAILABILITY_ZONE" --size "$SIZE")
+        AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text \
+            | sed '1q;d' | awk '{ print $4 }')
+        OUTPUT=$(aws ec2 create-volume --output text --availability-zone \
+            "$AVAILABILITY_ZONE" --size "$SIZE")
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
         debug_print "Validating provided volume ID"
@@ -84,28 +98,36 @@ main () {
     fi
 
     debug_print "Starting EC2 instance"
-    PARAMETERS="--output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone=$AVAILABILITY_ZONE"
-    INSTANCE_ID=$(aws ec2 run-instances "$PARAMETERS" | awk 'FNR == 2 { print $7 }')
+    PARAMETERS="--output text --instance-type t2.micro --image-id ami-7ad76705\
+        --placement AvailabilityZone=$AVAILABILITY_ZONE"
+    INSTANCE_ID=$(aws ec2 run-instances "$PARAMETERS" \
+        | awk 'FNR == 2 { print $7 }')
 
     [ "$INSTANCE_ID" = "" ] && exit $?;
 
     debug_print "Waiting for instance to boot"
     while true; do
-        STATE=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}' | awk '{ print $3 }')
+        STATE=$(aws ec2 describe-instances --output text --instance-ids \
+            "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
+            | awk '{ print $3 }')
         [ "$STATE" = "running" ] && break
         sleep 1
     done
 
     debug_print "Waiting for volume to attach to instance"
-    ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME" --instance-id "$INSTANCE_ID" --device /dev/sdf)
+    ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME"\
+        --instance-id "$INSTANCE_ID" --device /dev/sdf)
     DEVICE=$(echo "$ATTACH_OUTPUT" | awk '{ print $2 }')
     while true; do
-        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{State:State}')
+        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
+            --query 'Volumes[*].{State:State}')
         [ "$STATE" = "in-use" ] && break
         sleep 1
     done
 
-    INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{Address:PublicDnsName}')
+    INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids \
+        "$INSTANCE_ID" --query \
+        'Reservations[*].Instances[*].{Address:PublicDnsName}')
     tar cf - "$DIR" | ssh "$INSTANCE_IP" "dd of=\"$DEVICE\""
 
     if [ "$?" -ne 0 ]; then
