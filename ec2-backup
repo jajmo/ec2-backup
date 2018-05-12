@@ -79,19 +79,22 @@ main () {
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone "$AVAILABILITY_ZONE" --size "$SIZE")
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
-        debug_print "Verifying provided volume ID"
+        debug_print "Validating provided volume ID"
         validate_volume $VOLUME
     fi
 
-    # TODO: Error check $INSTANCE_ID
-    debug_print "Starting Linux instance"
-    INSTANCE_ID=$(aws ec2 run-instances --output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone="$AVAILABILITY_ZONE" | awk 'FNR == 2 { print $7 }')
+    debug_print "Starting EC2 instance"
+    PARAMETERS="--output text --instance-type t2.micro --image-id ami-7ad76705 --placement AvailabilityZone=$AVAILABILITY_ZONE"
+    INSTANCE_ID=$(aws ec2 run-instances $PARAMETERS | awk 'FNR == 2 { print $7 }')
+
+    [ "$INSTANCE_ID" = "" ] && exit $?;
 
     debug_print "Waiting for instance to boot"
     while [ 1 ];
     do
         STATE=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}' | awk '{ print $3 }')
         [ "$STATE" = "running" ] && break
+        sleep 1
     done
 
     debug_print "Waiting for volume to attach to instance"
@@ -101,6 +104,7 @@ main () {
     do
         STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME" --query 'Volumes[*].{State:State}')
         [ "$STATE" = "in-use" ] && break
+        sleep 1
     done
 
     INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{Address:PublicDnsName}')
