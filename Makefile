@@ -17,8 +17,10 @@ all:
 	@echo "       make uninstall"
 
 install:
-	install -Dm 0755 $(PRG) -t $(DESTDIR)$(BINPREFIX)
-	install -Dm 0644 $(MAN) -t $(DESTDIR)$(MANPREFIX)
+	mkdir -p $(DESTDIR)$(BINPREFIX)
+	mkdir -p $(DESTDIR)$(MANPREFIX)
+	install -m 0755 $(PRG) $(DESTDIR)$(BINPREFIX)
+	install -m 0644 $(MAN) $(DESTDIR)$(MANPREFIX)
 
 test:
 	./test.sh
