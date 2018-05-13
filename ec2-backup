@@ -6,7 +6,7 @@
 # sanitize PATH variable
 PATH=$(command -p getconf PATH)
 
-USAGE="usage: $0 [-h] [-l filter] [-r filter] [-v volume-id] dir"
+USAGE="usage: $(basename "$0") [-h] [-l filter] [-r filter] [-v volume-id] dir"
 VOLUME=""
 LOCAL_FILTER="cat"
 REMOTE_FILTER="cat"
