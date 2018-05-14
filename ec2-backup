@@ -13,6 +13,8 @@ REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
 EC2_AMI="ami-7ad76705"
+PARAMETERS=""
+CREATED_VOLUME=0
 
 # Security group configuration
 SG_NAME="ec2-backup"
@@ -102,12 +104,55 @@ echoerr () {
     1>&2 echo "$@"
 }
 
+process_parameters () {
+    if [ ! -z "$EC2_BACKUP_FLAGS_AWS" ]; then
+        if ! not_in_string "$EC2_BACKUP_FLAGS_AWS" "--placement AvailabilityZone"; then
+            echoerr "--placement cannot be overridden"
+            exit 1
+        fi
+
+        if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--security-groups" && \
+           not_in_string "$EC2_BACKUP_FLAGS_AWS" "--security-group-ids"; then
+            create_security_group
+            add_parameter "--security-group-ids $SG_ID"
+        fi
+
+        if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--image-id"; then
+            add_parameter "--image-id $EC2_AMI"
+        fi
+
+        if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--instance-type"; then
+            add_paramter "--instance-type t2.micro"
+        fi
+    else
+        create_security_group
+        add_parameter "--security-group-ids $SG_ID"
+        add_parameter "--image-id $EC2_AMI"
+        add_paramter "--instance-type t2.micro"
+    fi
+}
+
+add_parameter () {
+    PARAMETERS="$PARAMETERS $1"
+}
+
+not_in_string () {
+    echo "$1" | grep -vq -- "$2"
+    return "$?"
+}
+
 main () {
     parse_input "$@"
+
+    debug_print "Determining backup size"
     SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
+
+    debug_print "Processing AWS parameters"
+    process_parameters
 
     if [ -z "$VOLUME" ]; then
         debug_print "Creating new volume"
+        CREATED_VOLUME=1
         AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text \
             | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone \
@@ -118,15 +163,13 @@ main () {
         validate_volume "$VOLUME"
     fi
 
-    # TODO: Don't create if user gave us the flag
-    create_security_group
-
     debug_print "Starting EC2 instance"
-    PARAMETERS="--output text --instance-type t2.micro --image-id $EC2_AMI\
-        --placement AvailabilityZone=$AVAILABILITY_ZONE --security-group-ids $SG_ID"
+    add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
+    add_parameter "--output text"
     INSTANCE_ID=$(aws ec2 run-instances "$PARAMETERS" \
         | awk 'FNR == 2 { print $7 }')
 
+    # TODO: Delete created volume
     [ "$INSTANCE_ID" = "" ] && exit $?;
 
     debug_print "Waiting for instance to boot"
