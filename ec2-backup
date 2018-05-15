@@ -17,10 +17,13 @@ AVAILABILITY_ZONE=""
 EC2_AMI="ami-7ad76705"
 
 # Parameters for `aws ec2 run-instances`
-PARAMETERS=""
+EC2_PARAMETERS=""
+SSH_PARAMETERS=""
 
-# This lets us know if we need to delete a volume or not
+# This lets us know what needs to be deleted
 CREATED_VOLUME=0
+CREATED_KEYPAIR=0
+CREATED_SECURITY_GROUP=0
 
 # Security group configuration
 SG_NAME="ec2-backup"
@@ -106,6 +109,7 @@ create_security_group () {
         exit 1
     fi
 
+    CREATED_SECURITY_GROUP=1
     aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --port 22 --protocol tcp --cidr 0.0.0.0/0
 }
 
@@ -119,8 +123,10 @@ generate_ssh_key () {
         exit 1
     fi
 
+    CREATED_KEYPAIR=1
     echo "$OUTPUT" > "$SSH_KEYFILE_NAME"
     chmod 0400 "$SSH_KEYFILE_NAME"
+    SSH_PARAMETERS="$SSH_PARAMETERS -i $SSH_KEYFILE_NAME"
 }
 
 echoerr () {
@@ -128,7 +134,7 @@ echoerr () {
     1>&2 echo "$@"
 }
 
-process_parameters () {
+process_ec2_parameters () {
     if [ ! -z "$EC2_BACKUP_FLAGS_AWS" ]; then
         if ! not_in_string "$EC2_BACKUP_FLAGS_AWS" "--placement AvailabilityZone"; then
             echoerr "--placement cannot be overridden"
@@ -168,8 +174,18 @@ process_parameters () {
     fi
 }
 
+process_ssh_parameters () {
+    if $CREATED_KEYPAIR && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
+        echoerr "-i was provided, but --key-name was not"
+        echoerr "Ignoring EC2_BACKUP_FLAGS_SSH"
+        EC2_BACKUP_FLAGS_SSH=""
+    fi
+
+    SSH_PARAMETERS="$SSH_PARAMETERS $EC2_BACKUP_FLAGS_SSH"
+}
+
 add_parameter () {
-    PARAMETERS="$PARAMETERS $1"
+    EC2_PARAMETERS="$EC2_PARAMETERS $1"
 }
 
 not_in_string () {
@@ -184,7 +200,8 @@ main () {
     SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
 
     debug_print "Processing AWS parameters"
-    process_parameters
+    process_ec2_parameters
+    process_ssh_parameters
 
     if [ -z "$VOLUME" ]; then
         debug_print "Creating new volume"
@@ -202,7 +219,7 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
-    INSTANCE_ID=$(aws ec2 run-instances "$PARAMETERS" \
+    INSTANCE_ID=$(aws ec2 run-instances "$EC2_PARAMETERS" \
         | awk 'FNR == 2 { print $7 }')
 
     # TODO: Delete created volume if necessary
@@ -231,7 +248,7 @@ main () {
     INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids \
         "$INSTANCE_ID" --query \
         'Reservations[*].Instances[*].{Address:PublicDnsName}')
-    tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
+    tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
         "$REMOTE_FILTER | dd of=\"$DEVICE\""
 
     if [ "$?" -ne 0 ]; then
