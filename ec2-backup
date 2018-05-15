@@ -193,6 +193,20 @@ not_in_string () {
     return "$?"
 }
 
+cleanup () {
+    aws ec2 detach-volume "$VOLUME"
+    aws ec2 terminate-instances "$INSTANCE_ID"
+
+    if $CREATED_KEYPAIR; then
+        rm "$SSH_KEYFILE_NAME"
+        aws ec2 delete-key-pair "$SSH_KEY_NAME"
+    fi
+
+    if $CREATED_SECURITY_GROUP; then
+        aws ec2 delete-security-group --group-id "$SG_ID"
+    fi
+}
+
 main () {
     parse_input "$@"
 
@@ -257,6 +271,7 @@ main () {
         exit 1;
     fi
 
+    cleanup
     echo "$VOLUME"
     exit 0
 }
