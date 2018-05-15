@@ -125,6 +125,7 @@ generate_ssh_key () {
 
     CREATED_KEYPAIR=1
     echo "$OUTPUT" > "$SSH_KEYFILE_NAME"
+    [ "$?" -ne "0" ] && exit "$?";
     chmod 0400 "$SSH_KEYFILE_NAME"
     SSH_PARAMETERS="$SSH_PARAMETERS -i $SSH_KEYFILE_NAME"
 }
@@ -266,8 +267,15 @@ main () {
     INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids \
         "$INSTANCE_ID" --query \
         'Reservations[*].Instances[*].{Address:PublicDnsName}')
-    tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
-        "$REMOTE_FILTER | dd of=\"$DEVICE\""
+
+    debug_print "Executing backup"
+    if [ "$SSH_PARAMETERS" = "" ]; then
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
+            "$REMOTE_FILTER | dd of=\"$DEVICE\""
+    else
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
+            "$REMOTE_FILTER | dd of=\"$DEVICE\""
+    fi
 
     if [ "$?" -ne 0 ]; then
         # TODO: Tear down volume (if created) and instance
@@ -275,6 +283,7 @@ main () {
         exit 1;
     fi
 
+    debug_print "Cleaning up"
     cleanup
     echo "$VOLUME"
     exit 0
