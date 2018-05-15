@@ -157,12 +157,12 @@ process_ec2_parameters () {
         fi
 
         if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--instance-type"; then
-            add_paramter "--instance-type t2.micro"
+            add_parameter "--instance-type t2.micro"
         fi
 
         if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--key-name"; then
             generate_ssh_key
-            add_paramter "--key-name $SSH_KEY_NAME"
+            add_parameter "--key-name $SSH_KEY_NAME"
         fi
     else
         create_security_group
@@ -175,10 +175,12 @@ process_ec2_parameters () {
 }
 
 process_ssh_parameters () {
-    if $CREATED_KEYPAIR && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
-        echoerr "-i was provided, but --key-name was not"
-        echoerr "Ignoring EC2_BACKUP_FLAGS_SSH"
-        EC2_BACKUP_FLAGS_SSH=""
+    if [ ! -z "$EC2_BACKUP_FLAGS_SSH" ]; then
+        if "$CREATED_KEYPAIR" && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
+            echoerr "-i was provided, but --key-name was not"
+            echoerr "Ignoring EC2_BACKUP_FLAGS_SSH"
+            EC2_BACKUP_FLAGS_SSH=""
+        fi
     fi
 
     SSH_PARAMETERS="$SSH_PARAMETERS $EC2_BACKUP_FLAGS_SSH"
@@ -215,6 +217,8 @@ main () {
 
     debug_print "Processing AWS parameters"
     process_ec2_parameters
+
+    debug_print "Processing SSH parameters"
     process_ssh_parameters
 
     if [ -z "$VOLUME" ]; then
@@ -233,7 +237,7 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
-    INSTANCE_ID=$(aws ec2 run-instances "$EC2_PARAMETERS" \
+    INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
         | awk 'FNR == 2 { print $7 }')
 
     # TODO: Delete created volume if necessary
