@@ -14,7 +14,7 @@ LOCAL_FILTER="cat -"
 REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
-EC2_AMI="ami-7ad76705"
+EC2_AMI="ami-bc8fc8d6"
 
 # Parameters for `aws ec2 run-instances`
 EC2_PARAMETERS=""
@@ -106,6 +106,7 @@ create_security_group () {
     if echo "$SG_ID" | grep -q "error"; then
         echoerr "Security group $SG_NAME already exists."
         echoerr "Please delete this group, or specify a security group with '--security-groups' or '--security-group-ids'"
+        cleanup
         exit 1
     fi
 
@@ -120,6 +121,7 @@ generate_ssh_key () {
     if echo "$OUTPUT" | grep -q "error"; then
         echoerr "Unable to create SSH key ec2-backup"
         echoerr "Please delete this keypair, or specify '--key-name'"
+        cleanup
         exit 1
     fi
 
@@ -197,15 +199,37 @@ not_in_string () {
 }
 
 cleanup () {
-    aws ec2 detach-volume "$VOLUME"
-    aws ec2 terminate-instances "$INSTANCE_ID"
+    aws ec2 detach-volume --volume-id "$VOLUME"
 
-    if $CREATED_KEYPAIR; then
-        rm "$SSH_KEYFILE_NAME"
-        aws ec2 delete-key-pair "$SSH_KEY_NAME"
+    debug_print "Waiting for volume to detach"
+    while true; do
+        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
+            --query 'Volumes[*].{State:State}')
+        [ "$STATE" = "available" ] && break
+        sleep 1
+    done
+
+    if [ ! "$INSTANCE_ID" = "" ]; then
+        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
     fi
 
-    if $CREATED_SECURITY_GROUP; then
+    debug_print "Waiting for instance to terminate"
+    while true; do
+        STATE=$(aws ec2 describe-instances --output text --instance-ids \
+            "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
+            | awk '{ print $3 }')
+        [ "$STATE" = "terminated" ] && break
+        sleep 1
+    done
+
+    if "$CREATED_KEYPAIR"; then
+        debug_print "Deleting generated keypair"
+        rm -f "$SSH_KEYFILE_NAME" &>/dev/null 
+        aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME"
+    fi
+
+    if "$CREATED_SECURITY_GROUP"; then
+        debug_print "Deleting generated security group"
         aws ec2 delete-security-group --group-id "$SG_ID"
     fi
 }
@@ -241,8 +265,11 @@ main () {
     INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
         | awk 'FNR == 2 { print $7 }')
 
-    # TODO: Delete created volume if necessary
-    [ "$INSTANCE_ID" = "" ] && exit $?;
+    if [ "$INSTANCE_ID" = "" ]; then
+        echoerr "Failed to start instance"
+        cleanup
+        exit "$?"
+    fi
 
     debug_print "Waiting for instance to boot"
     while true; do
@@ -273,14 +300,14 @@ main () {
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
     if [ "$?" -ne 0 ]; then
-        # TODO: Tear down volume (if created) and instance
-        echoerr "SSH command failed";
-        exit 1;
+        echoerr "SSH command failed"
+        cleanup
+        exit "$?"
     fi
 
     debug_print "Cleaning up"
