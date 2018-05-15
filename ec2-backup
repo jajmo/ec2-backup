@@ -7,19 +7,29 @@
 PATH=$(command -p getconf PATH)
 
 USAGE="usage: $(basename "$0") [-h] [-l filter] [-r filter] [-v volume-id] dir"
+
+# These will be filled in later
 VOLUME=""
 LOCAL_FILTER="cat -"
 REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
 EC2_AMI="ami-7ad76705"
+
+# Parameters for `aws ec2 run-instances`
 PARAMETERS=""
+
+# This lets us know if we need to delete a volume or not
 CREATED_VOLUME=0
 
 # Security group configuration
 SG_NAME="ec2-backup"
 SG_DESC="Temporary security group for ec2-backup"
 SG_ID=""
+
+# SSH key generation configuration
+SSH_KEY_NAME="ec2-backup"
+SSH_KEYFILE_NAME="ec2-backup.pem"
 
 usage () {
     echo "$USAGE"
@@ -99,6 +109,20 @@ create_security_group () {
     aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --port 22 --protocol tcp --cidr 0.0.0.0/0
 }
 
+generate_ssh_key () {
+    debug_print "Generating an SSH keypair"
+    OUTPUT=$(aws ec2 create-key-pair --output text --key-name "$SSH_KEY_NAME" --query "KeyMaterial" 2>&1)
+
+    if echo "$OUTPUT" | grep -q "error"; then
+        echoerr "Unable to create SSH key ec2-backup"
+        echoerr "Please delete this keypair, or specify '--key-name'"
+        exit 1
+    fi
+
+    echo "$OUTPUT" > "$SSH_KEYFILE_NAME"
+    chmod 0400 "$SSH_KEYFILE_NAME"
+}
+
 echoerr () {
     # same as 'echo' but print to STDERR
     1>&2 echo "$@"
@@ -108,6 +132,11 @@ process_parameters () {
     if [ ! -z "$EC2_BACKUP_FLAGS_AWS" ]; then
         if ! not_in_string "$EC2_BACKUP_FLAGS_AWS" "--placement AvailabilityZone"; then
             echoerr "--placement cannot be overridden"
+            exit 1
+        fi
+
+        if ! not_in_string "$EC2_BACKUP_FLAGS_AWS" "--output"; then
+            echoerr "--outout cannot be overridden"
             exit 1
         fi
 
@@ -124,11 +153,18 @@ process_parameters () {
         if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--instance-type"; then
             add_paramter "--instance-type t2.micro"
         fi
+
+        if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--key-name"; then
+            generate_ssh_key
+            add_paramter "--key-name $SSH_KEY_NAME"
+        fi
     else
         create_security_group
+        generate_ssh_key
+        add_parameter "--key-name $SSH_KEY_NAME"
         add_parameter "--security-group-ids $SG_ID"
         add_parameter "--image-id $EC2_AMI"
-        add_paramter "--instance-type t2.micro"
+        add_parameter "--instance-type t2.micro"
     fi
 }
 
@@ -169,7 +205,7 @@ main () {
     INSTANCE_ID=$(aws ec2 run-instances "$PARAMETERS" \
         | awk 'FNR == 2 { print $7 }')
 
-    # TODO: Delete created volume
+    # TODO: Delete created volume if necessary
     [ "$INSTANCE_ID" = "" ] && exit $?;
 
     debug_print "Waiting for instance to boot"
