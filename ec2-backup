@@ -212,7 +212,7 @@ not_in_string () {
 
 cleanup () {
     if [ -n "$VOLUME" ]; then
-        aws ec2 detach-volume --volume-id "$VOLUME"
+        aws ec2 detach-volume --volume-id "$VOLUME" 2>/dev/null
 
         debug_print "Waiting for volume to detach"
         while true; do
