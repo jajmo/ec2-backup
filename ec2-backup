@@ -312,7 +312,7 @@ main () {
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
