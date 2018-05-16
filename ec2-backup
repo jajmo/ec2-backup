@@ -286,6 +286,9 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
+    #shellcheck disable=SC2086
+    # EC2_PARAMETERS and EC2_BACKUP_FLAGS_AWS need to expand here otherwise the
+    # aws command will fail
     INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
         | awk 'FNR == 2 { print $7 }')
 
@@ -321,13 +324,23 @@ main () {
 
     debug_print "Executing backup"
     if [ "$SSH_PARAMETERS" = "" ]; then
+        #shellcheck disable=SC2029
+        # We want REMOTE_FILTER and DEVICE to expand on the local side because
+        # that is the only side they will be defined on
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
+        #shellcheck disable=SC2086 disable=SC2029
+        # SSH_PARAMETERS needs to expand for ssh to work properly, and
+        # REMOTE_FILTER and DEVICE are the same as above
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
+    #shellcheck disable=SC2181
+    # Ignoring this because it would be a bit cumbersome to wrap both ssh
+    # commands, this should work fine as long as nothing is executed between the
+    # ssh commands and this statement
     if [ "$?" -ne 0 ]; then
         echoerr "SSH command failed"
         cleanup error
