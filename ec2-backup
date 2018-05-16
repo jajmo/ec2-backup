@@ -279,10 +279,10 @@ main () {
     INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
         | awk 'FNR == 2 { print $7 }')
 
-    if [ "$INSTANCE_ID" = "" ]; then
+    if [ -z "$INSTANCE_ID" ]; then
         echoerr "Failed to start instance"
         cleanup
-        exit "$?"
+        exit 1
     fi
 
     debug_print "Waiting for instance to boot"
