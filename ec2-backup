@@ -23,6 +23,7 @@ EC2_PARAMETERS=""
 SSH_PARAMETERS=""
 
 # This lets us know what needs to be deleted
+CREATED_VOLUME=0
 CREATED_KEYPAIR=0
 CREATED_SECURITY_GROUP=0
 
@@ -116,7 +117,7 @@ create_security_group () {
     if echo "$SG_ID" | grep -q "error"; then
         echoerr "Security group $SG_NAME already exists."
         echoerr "Please delete this group, or specify a security group with '--security-groups' or '--security-group-ids'"
-        cleanup
+        cleanup error
         exit 1
     fi
 
@@ -131,7 +132,7 @@ generate_ssh_key () {
     if echo "$OUTPUT" | grep -q "error"; then
         echoerr "Unable to create SSH key ec2-backup"
         echoerr "Please delete this keypair, or specify '--key-name'"
-        cleanup
+        cleanup error
         exit 1
     fi
 
@@ -211,6 +212,10 @@ not_in_string () {
 }
 
 cleanup () {
+    # NOTE: if this is cleaning up from an error $1 should be provided, it
+    # doesn't matter what it's value is, this allows us to also delete a volume
+    # we may have created in the case of an error
+
     if [ -n "$VOLUME" ]; then
         aws ec2 detach-volume --volume-id "$VOLUME" 2>/dev/null
 
@@ -221,6 +226,10 @@ cleanup () {
             [ "$STATE" = "available" ] && break
             sleep 1
         done
+
+        if [ "$CREATED_VOLUME" -eq 1 ] && [ -n "$1" ]; then
+            aws ec2 delete-volume --volume-id "$VOLUME"
+        fi
     fi
 
     if [ -n "$INSTANCE_ID" ]; then
@@ -267,6 +276,7 @@ main () {
             | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone \
             "$AVAILABILITY_ZONE" --size "$SIZE")
+        CREATED_VOLUME=1
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
         debug_print "Validating provided volume ID"
@@ -281,7 +291,7 @@ main () {
 
     if [ -z "$INSTANCE_ID" ]; then
         echoerr "Failed to start instance"
-        cleanup
+        cleanup error
         exit 1
     fi
 
@@ -320,7 +330,7 @@ main () {
 
     if [ "$?" -ne 0 ]; then
         echoerr "SSH command failed"
-        cleanup
+        cleanup error
         exit "$?"
     fi
 
