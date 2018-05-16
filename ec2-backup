@@ -8,6 +8,8 @@ PATH=$(command -p getconf PATH)
 
 USAGE="usage: $(basename "$0") [-h] [-l filter] [-r filter] [-v volume-id] dir"
 
+DEPENDENCIES="aws ssh tar"
+
 # These will be filled in later
 VOLUME=""
 LOCAL_FILTER="cat -"
@@ -50,6 +52,15 @@ help_message () {
  -v volume-id   Use the given volume instead of creating a new one.
 EOF
     exit 0
+}
+
+check_dependencies () {
+    for dep in $DEPENDENCIES; do
+        if ! $dep >/dev/null 2>&1; then
+            echoerr "$(basename "$0"): requires '$dep' command."
+            exit 1
+        fi
+    done
 }
 
 parse_input () {
@@ -224,7 +235,7 @@ cleanup () {
 
     if "$CREATED_KEYPAIR"; then
         debug_print "Deleting generated keypair"
-        rm -f "$SSH_KEYFILE_NAME" &>/dev/null 
+        rm -f "$SSH_KEYFILE_NAME" &>/dev/null
         aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME"
     fi
 
@@ -236,6 +247,7 @@ cleanup () {
 
 main () {
     parse_input "$@"
+    check_dependencies
 
     debug_print "Determining backup size"
     SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
