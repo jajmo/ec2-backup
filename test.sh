@@ -55,7 +55,53 @@ while true; do
         break
     fi
 
-    # TODO: add more test cases
+    printf '%s' 'Test 3: checking invalid backup...'
+    echo 'This is not a directory.' > notadirectory
+    if ! $EXE notadirectory; then
+        echo 'Success'
+    else
+        echo 'Failed'
+        break
+    fi
+
+    printf '%s' 'Test 4: checking valid backup...'
+    mkdir dir
+    echo 'Hello World.' > dir/file
+    if OUTPUT=$($EXE dir); then
+        #TODO check file exists on volume saved in OUTPUT
+        echo 'Success'
+    else
+        echo 'Failed'
+        break
+    fi
+
+    printf '%s' 'Test 5: checking invalid local filter...'
+    if ! $EXE -l 'notacommand -' dir; then
+        echo 'Success'
+    else
+        echo 'Failed'
+        break
+    fi
+
+    printf '%s' 'Test 6: checking valid local filter...'
+    if OUTPUT=$($EXE -l 'tar -cz -' dir); then
+        #TODO check file exists on volume saved in OUTPUT
+        echo 'Success'
+    else
+        echo 'Failed'
+        break
+    fi
+
+    printf '%s' 'Test 7: checking valid local and remote filters...'
+    if OUTPUT=$($EXE -l 'tar -cz -' -r 'tar -xz -' dir); then
+        #TODO check file exists on volume saved in OUTPUT
+        echo 'Success'
+    else
+        echo 'Failed'
+        break
+    fi
+
+    # TODO: add more test cases, need to check volume flag (-v)
 
     # we only want the loop to execute once anyway
     break
