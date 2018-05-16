@@ -84,7 +84,7 @@ while true; do
     fi
 
     printf '%s' 'Test 6: checking valid local filter...'
-    if OUTPUT=$($EXE -l 'tar -cz -' dir); then
+    if OUTPUT=$($EXE -l 'tar -czf -' dir); then
         #TODO check file exists on volume saved in OUTPUT
         echo 'Success'
     else
@@ -93,7 +93,7 @@ while true; do
     fi
 
     printf '%s' 'Test 7: checking valid local and remote filters...'
-    if OUTPUT=$($EXE -l 'tar -cz -' -r 'tar -xz -' dir); then
+    if OUTPUT=$($EXE -l 'tar -czf -' -r 'tar -xzf -' dir); then
         #TODO check file exists on volume saved in OUTPUT
         echo 'Success'
     else
