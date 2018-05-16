@@ -16,7 +16,7 @@ LOCAL_FILTER="cat -"
 REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
-EC2_AMI="ami-bc8fc8d6"
+EC2_AMI="ami-0b2c7fd1c1f7e91d6"
 
 # Parameters for `aws ec2 run-instances`
 EC2_PARAMETERS=""
