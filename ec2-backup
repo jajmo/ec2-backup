@@ -191,7 +191,7 @@ process_ec2_parameters () {
 
 process_ssh_parameters () {
     if [ ! -z "$EC2_BACKUP_FLAGS_SSH" ]; then
-        if "$CREATED_KEYPAIR" && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
+        if [ "$CREATED_KEYPAIR" -eq 1 ] && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
             echoerr "-i was provided, but --key-name was not"
             echoerr "Ignoring EC2_BACKUP_FLAGS_SSH"
             EC2_BACKUP_FLAGS_SSH=""
@@ -236,13 +236,13 @@ cleanup () {
         done
     fi
 
-    if "$CREATED_KEYPAIR"; then
+    if [ "$CREATED_KEYPAIR" -eq 1 ]; then
         debug_print "Deleting generated keypair"
         rm -f "$SSH_KEYFILE_NAME" >/dev/null 2>&1
         aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME"
     fi
 
-    if "$CREATED_SECURITY_GROUP"; then
+    if [ "$CREATED_SECURITY_GROUP" -eq 1 ]; then
         debug_print "Deleting generated security group"
         aws ec2 delete-security-group --group-id "$SG_ID"
     fi
