@@ -276,7 +276,7 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
-    INSTANCE_ID=$(aws ec2 run-instances "$EC2_PARAMETERS" "$EC2_BACKUP_FLAGS_AWS" \
+    INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
         | awk 'FNR == 2 { print $7 }')
 
     if [ "$INSTANCE_ID" = "" ]; then

@@ -65,7 +65,7 @@ while true; do
     fi
 
     printf '%s' 'Test 4: checking valid backup...'
-    mkdir dir
+    mkdir -p dir
     echo 'Hello World.' > dir/file
     if OUTPUT=$($EXE dir); then
         #TODO check file exists on volume saved in OUTPUT
