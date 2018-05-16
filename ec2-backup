@@ -23,7 +23,6 @@ EC2_PARAMETERS=""
 SSH_PARAMETERS=""
 
 # This lets us know what needs to be deleted
-CREATED_VOLUME=0
 CREATED_KEYPAIR=0
 CREATED_SECURITY_GROUP=0
 
@@ -137,8 +136,10 @@ generate_ssh_key () {
     fi
 
     CREATED_KEYPAIR=1
-    echo "$OUTPUT" > "$SSH_KEYFILE_NAME"
-    [ "$?" -ne "0" ] && exit "$?";
+    if ! echo "$OUTPUT" > "$SSH_KEYFILE_NAME"; then
+        echoerr "Unable to write ssh key to $SSH_KEYFILE_NAME"
+        exit 1
+    fi
     chmod 0400 "$SSH_KEYFILE_NAME"
     SSH_PARAMETERS="$SSH_PARAMETERS -i $SSH_KEYFILE_NAME"
 }
@@ -235,7 +236,7 @@ cleanup () {
 
     if "$CREATED_KEYPAIR"; then
         debug_print "Deleting generated keypair"
-        rm -f "$SSH_KEYFILE_NAME" &>/dev/null
+        rm -f "$SSH_KEYFILE_NAME" &>/dev/null 2>&1
         aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME"
     fi
 
@@ -250,7 +251,7 @@ main () {
     check_dependencies
 
     debug_print "Determining backup size"
-    SIZE=$(du -gs "$DIR" 2> /dev/null | awk '{ print $1 * 2 }')
+    SIZE=$(du -gs "$DIR" 2>/dev/null | awk '{ print $1 * 2 }')
 
     debug_print "Processing AWS parameters"
     process_ec2_parameters
@@ -260,7 +261,6 @@ main () {
 
     if [ -z "$VOLUME" ]; then
         debug_print "Creating new volume"
-        CREATED_VOLUME=1
         AVAILABILITY_ZONE=$(aws ec2 describe-availability-zones --output text \
             | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone \
@@ -274,7 +274,7 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
-    INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
+    INSTANCE_ID=$(aws ec2 run-instances "$EC2_PARAMETERS" "$EC2_BACKUP_FLAGS_AWS" \
         | awk 'FNR == 2 { print $7 }')
 
     if [ "$INSTANCE_ID" = "" ]; then
@@ -312,7 +312,7 @@ main () {
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
