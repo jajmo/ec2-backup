@@ -211,28 +211,30 @@ not_in_string () {
 }
 
 cleanup () {
-    aws ec2 detach-volume --volume-id "$VOLUME"
+    if [ -n "$VOLUME" ]; then
+        aws ec2 detach-volume --volume-id "$VOLUME"
 
-    debug_print "Waiting for volume to detach"
-    while true; do
-        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
-            --query 'Volumes[*].{State:State}')
-        [ "$STATE" = "available" ] && break
-        sleep 1
-    done
-
-    if [ ! "$INSTANCE_ID" = "" ]; then
-        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
+        debug_print "Waiting for volume to detach"
+        while true; do
+            STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
+                --query 'Volumes[*].{State:State}')
+            [ "$STATE" = "available" ] && break
+            sleep 1
+        done
     fi
 
-    debug_print "Waiting for instance to terminate"
-    while true; do
-        STATE=$(aws ec2 describe-instances --output text --instance-ids \
-            "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
-            | awk '{ print $3 }')
-        [ "$STATE" = "terminated" ] && break
-        sleep 1
-    done
+    if [ -n "$INSTANCE_ID" ]; then
+        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
+
+        debug_print "Waiting for instance to terminate"
+        while true; do
+            STATE=$(aws ec2 describe-instances --output text --instance-ids \
+                "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
+                | awk '{ print $3 }')
+            [ "$STATE" = "terminated" ] && break
+            sleep 1
+        done
+    fi
 
     if "$CREATED_KEYPAIR"; then
         debug_print "Deleting generated keypair"
