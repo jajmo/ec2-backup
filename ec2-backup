@@ -237,12 +237,16 @@ do_backup () {
     debug_print "Executing backup"
     if [ -z "$SSH_PARAMETERS" ]; then
         #shellcheck disable=SC2086 disable=SC2029
+        ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" "ls /dev/$DEVICE" >/dev/null 2>&1
+        [ "$?" -ne 0 ] && { echoerr "Backup device $DEVICE does not exist"; cleanup true; exit 1; }
         # We want REMOTE_FILTER and DEVICE to expand on the local side because
         # that is the only side they will be defined on
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS \
             "$INSTANCE_IP" "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
         #shellcheck disable=SC2086 disable=SC2029
+        ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" "ls /dev/$DEVICE" >/dev/null 2>&1
+        [ "$?" -ne 0 ] && { echoerr "Backup device $DEVICE does not exist"; cleanup true; exit 1; }
         # SSH_PARAMETERS needs to expand for ssh to work properly, and
         # REMOTE_FILTER and DEVICE are the same as above
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS \
