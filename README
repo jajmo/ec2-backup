@@ -1,0 +1,24 @@
+Jason Ajmo and Bradford Smith
+CS 615 HW6 ec2-backup
+May 17, 2018
+
+We chose to use POSIX Shell as our programming language to challenge us to write
+a (hopefully) fairly cross-platform Unix program. Ideally the program will run
+in any POSIX compliant shell.
+
+We spent some time ensuring our program would be safe from PATH exploits such as
+those we used in the class CTF. We messed around with command(1) for a while
+before settling on setting PATH inside the script using getconf(1).
+
+We wrote a test script to help us automate our testing but some of the aws
+commands took a while to execute, and that combined with the time it took us to
+fix issues we found lead to the test script not being very comprehensive.
+
+Overall our biggest issue was probably finding an AWS instance to use for
+copying the data. We started out with a Debian AMI but the default user doesn't
+have privileges to write to /dev/, so we began looking for instances that had a
+default user of root. We spent time trying OmniOS, looked at Turnkey Linux for a
+while and spent time using NetBSD. With OmniOS and NetBSD we had issues writing
+to the attached volume, so we moved back to a Debian AMI and attempted to switch
+to root in the ssh command that copies the data. This did not work either as su
+insisted on being called from a tty, which lead us back to NetBSD.
