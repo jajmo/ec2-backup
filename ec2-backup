@@ -16,15 +16,21 @@ LOCAL_FILTER="cat -"
 REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
-EC2_AMI="ami-0b2c7fd1c1f7e91d6"
+EC2_AMI="ami-569ed93c"
+
+# TODO: Where does it actually mount on NetBSD?
+DEVICE="/dev/xbd2a"
 
 # Parameters for `aws ec2 run-instances`
 EC2_PARAMETERS=""
 SSH_PARAMETERS=""
+DEFAULT_SSH_PARAMETERS="-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no"
 
 # This lets us know what needs to be deleted
 CREATED_KEYPAIR=0
 CREATED_SECURITY_GROUP=0
+CREATED_VOLUME=0
+VOLUME_ATTACHED=0
 
 # Security group configuration
 SG_NAME="ec2-backup"
@@ -169,10 +175,12 @@ process_ec2_parameters () {
 
         if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--image-id"; then
             add_parameter "--image-id $EC2_AMI"
+        else
+            DEVICE="/dev/sdf"
         fi
 
         if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--instance-type"; then
-            add_parameter "--instance-type t2.micro"
+            add_parameter "--instance-type t1.micro"
         fi
 
         if not_in_string "$EC2_BACKUP_FLAGS_AWS" "--key-name"; then
@@ -185,7 +193,7 @@ process_ec2_parameters () {
         add_parameter "--key-name $SSH_KEY_NAME"
         add_parameter "--security-group-ids $SG_ID"
         add_parameter "--image-id $EC2_AMI"
-        add_parameter "--instance-type t2.micro"
+        add_parameter "--instance-type t1.micro"
     fi
 }
 
@@ -211,17 +219,30 @@ not_in_string () {
 }
 
 do_backup () {
+    debug_print "Waiting for SSH to be ready"
+    while true; do
+        # TODO: Verify this using `get-console-output` instead of grepping for errors
+        if [ "$SSH_PARAMETERS" = "" ]; then
+            ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" "exit" 2>&1 | grep -vq 'Connection refused'
+        else
+            ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" "exit" 2>&1 | grep -vq 'Connection refused'
+        fi
+        [ "$?" -eq 0 ] && break
+        sleep 2
+    done
+
+    debug_print "Executing backup"
     if [ "$SSH_PARAMETERS" = "" ]; then
         #shellcheck disable=SC2029
         # We want REMOTE_FILTER and DEVICE to expand on the local side because
         # that is the only side they will be defined on
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
         #shellcheck disable=SC2086 disable=SC2029
         # SSH_PARAMETERS needs to expand for ssh to work properly, and
         # REMOTE_FILTER and DEVICE are the same as above
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
@@ -241,8 +262,11 @@ cleanup () {
     # doesn't matter what it's value is, this allows us to also delete a volume
     # we may have created in the case of an error
 
-    if [ -n "$VOLUME" ]; then
-        aws ec2 detach-volume --volume-id "$VOLUME" 2>/dev/null
+    if [ -n "$VOLUME" ] && [ "$VOLUME_ATTACHED" -eq 1 ]; then
+
+        # TODO: I had to force detach from the web UI a few times. Maybe print an
+        # error if it's taking too long and tell the user to force detach?
+        aws ec2 detach-volume --volume-id "$VOLUME" >/dev/null 
 
         debug_print "Waiting for volume to detach"
         while true; do
@@ -253,12 +277,12 @@ cleanup () {
         done
 
         if [ "$CREATED_VOLUME" -eq 1 ] && [ -n "$1" ]; then
-            aws ec2 delete-volume --volume-id "$VOLUME"
+            aws ec2 delete-volume --volume-id "$VOLUME" >/dev/null 
         fi
     fi
 
     if [ -n "$INSTANCE_ID" ]; then
-        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
+        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" >/dev/null
 
         debug_print "Waiting for instance to terminate"
         while true; do
@@ -273,12 +297,12 @@ cleanup () {
     if [ "$CREATED_KEYPAIR" -eq 1 ]; then
         debug_print "Deleting generated keypair"
         rm -f "$SSH_KEYFILE_NAME" >/dev/null 2>&1
-        aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME"
+        aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME" >/dev/null
     fi
 
     if [ "$CREATED_SECURITY_GROUP" -eq 1 ]; then
         debug_print "Deleting generated security group"
-        aws ec2 delete-security-group --group-id "$SG_ID"
+        aws ec2 delete-security-group --group-id "$SG_ID" >/dev/null
     fi
 }
 
@@ -311,6 +335,7 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
+
     #shellcheck disable=SC2086
     # EC2_PARAMETERS and EC2_BACKUP_FLAGS_AWS need to expand here otherwise the
     # aws command will fail
@@ -335,7 +360,7 @@ main () {
     debug_print "Waiting for volume to attach to instance"
     ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME"\
         --instance-id "$INSTANCE_ID" --device /dev/sdf)
-    DEVICE=$(echo "$ATTACH_OUTPUT" | awk '{ print $2 }')
+    VOLUME_ATTACHED=1
     while true; do
         STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
             --query 'Volumes[*].{State:State}')
@@ -347,7 +372,6 @@ main () {
         "$INSTANCE_ID" --query \
         'Reservations[*].Instances[*].{Address:PublicDnsName}')
 
-    debug_print "Executing backup"
     do_backup
 
     debug_print "Cleaning up"
