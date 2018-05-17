@@ -210,6 +210,32 @@ not_in_string () {
     return "$?"
 }
 
+do_backup () {
+    if [ "$SSH_PARAMETERS" = "" ]; then
+        #shellcheck disable=SC2029
+        # We want REMOTE_FILTER and DEVICE to expand on the local side because
+        # that is the only side they will be defined on
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
+            "$REMOTE_FILTER | dd of=\"$DEVICE\""
+    else
+        #shellcheck disable=SC2086 disable=SC2029
+        # SSH_PARAMETERS needs to expand for ssh to work properly, and
+        # REMOTE_FILTER and DEVICE are the same as above
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
+            "$REMOTE_FILTER | dd of=\"$DEVICE\""
+    fi
+
+    #shellcheck disable=SC2181
+    # Ignoring this because it would be a bit cumbersome to wrap both ssh
+    # commands, this should work fine as long as nothing is executed between the
+    # ssh commands and this statement
+    if [ "$?" -ne 0 ]; then
+        echoerr "SSH command failed"
+        cleanup error
+        exit 1
+    fi
+}
+
 cleanup () {
     # NOTE: if this is cleaning up from an error $1 should be provided, it
     # doesn't matter what it's value is, this allows us to also delete a volume
@@ -322,29 +348,7 @@ main () {
         'Reservations[*].Instances[*].{Address:PublicDnsName}')
 
     debug_print "Executing backup"
-    if [ "$SSH_PARAMETERS" = "" ]; then
-        #shellcheck disable=SC2029
-        # We want REMOTE_FILTER and DEVICE to expand on the local side because
-        # that is the only side they will be defined on
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
-            "$REMOTE_FILTER | dd of=\"$DEVICE\""
-    else
-        #shellcheck disable=SC2086 disable=SC2029
-        # SSH_PARAMETERS needs to expand for ssh to work properly, and
-        # REMOTE_FILTER and DEVICE are the same as above
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
-            "$REMOTE_FILTER | dd of=\"$DEVICE\""
-    fi
-
-    #shellcheck disable=SC2181
-    # Ignoring this because it would be a bit cumbersome to wrap both ssh
-    # commands, this should work fine as long as nothing is executed between the
-    # ssh commands and this statement
-    if [ "$?" -ne 0 ]; then
-        echoerr "SSH command failed"
-        cleanup error
-        exit 1
-    fi
+    do_backup
 
     debug_print "Cleaning up"
     cleanup
