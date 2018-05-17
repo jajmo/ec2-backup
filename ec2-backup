@@ -17,9 +17,7 @@ REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
 EC2_AMI="ami-569ed93c"
-
-# TODO: Where does it actually mount on NetBSD?
-DEVICE="/dev/xbd2a"
+DEVICE="/dev/sdf"
 
 # Parameters for `aws ec2 run-instances`
 EC2_PARAMETERS=""
@@ -144,10 +142,11 @@ generate_ssh_key () {
     CREATED_KEYPAIR=1
     if ! echo "$OUTPUT" > "$SSH_KEYFILE_NAME"; then
         echoerr "Unable to write ssh key to $SSH_KEYFILE_NAME"
+        cleanup error
         exit 1
     fi
     chmod 0400 "$SSH_KEYFILE_NAME"
-    SSH_PARAMETERS="$SSH_PARAMETERS -i $SSH_KEYFILE_NAME"
+    SSH_PARAMETERS="$SSH_PARAMETERS-i $SSH_KEYFILE_NAME "
 }
 
 echoerr () {
@@ -219,38 +218,22 @@ not_in_string () {
 }
 
 do_backup () {
-    debug_print "Waiting for SSH to be ready"
-    while true; do
-        # TODO: Verify this using `get-console-output` instead of grepping for errors
-        if [ -z "$SSH_PARAMETERS" ]; then
-            #shellcheck disable=SC2086
-            ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" "exit" 2>&1 | grep -vq 'Connection refused'
-        else
-            #shellcheck disable=SC2086
-            ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" "exit" 2>&1 | grep -vq 'Connection refused'
-        fi
-        #shellcheck disable=SC2181
-        [ "$?" -eq 0 ] && break
-        sleep 2
-    done
+    # Make sure SSH is ready to accept connections
+    sleep 20
 
     debug_print "Executing backup"
-    if [ -z "$SSH_PARAMETERS" ]; then
+    if [ "$SSH_PARAMETERS" = "" ]; then
         #shellcheck disable=SC2086 disable=SC2029
-        ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" "ls /dev/$DEVICE" >/dev/null 2>&1
-        [ "$?" -ne 0 ] && { echoerr "Backup device $DEVICE does not exist"; cleanup true; exit 1; }
         # We want REMOTE_FILTER and DEVICE to expand on the local side because
         # that is the only side they will be defined on
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS \
-            "$INSTANCE_IP" "$REMOTE_FILTER | dd of=\"$DEVICE\""
+            "$INSTANCE_IP" "$REMOTE_FILTER | dd of=/dev/xbd2d"
     else
         #shellcheck disable=SC2086 disable=SC2029
-        ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" "ls /dev/$DEVICE" >/dev/null 2>&1
-        [ "$?" -ne 0 ] && { echoerr "Backup device $DEVICE does not exist"; cleanup true; exit 1; }
         # SSH_PARAMETERS needs to expand for ssh to work properly, and
         # REMOTE_FILTER and DEVICE are the same as above
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS \
-            $SSH_PARAMETERS "$INSTANCE_IP" "$REMOTE_FILTER | dd of=\"$DEVICE\""
+            $SSH_PARAMETERS "$INSTANCE_IP" "$REMOTE_FILTER | dd of=/dev/xbd2d"
     fi
 
     #shellcheck disable=SC2181
@@ -268,20 +251,11 @@ cleanup () {
     # NOTE: if this is cleaning up from an error $1 should be provided, it
     # doesn't matter what it's value is, this allows us to also delete a volume
     # we may have created in the case of an error
-
     if [ -n "$VOLUME" ] && [ "$VOLUME_ATTACHED" -eq 1 ]; then
-
-        # TODO: I had to force detach from the web UI a few times. Maybe print an
-        # error if it's taking too long and tell the user to force detach?
         aws ec2 detach-volume --volume-id "$VOLUME" >/dev/null
 
         debug_print "Waiting for volume to detach"
-        while true; do
-            STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
-                --query 'Volumes[*].{State:State}')
-            [ "$STATE" = "available" ] && break
-            sleep 1
-        done
+        aws ec2 wait volume-available "$VOLUME"
 
         if [ "$CREATED_VOLUME" -eq 1 ] && [ -n "$1" ]; then
             aws ec2 delete-volume --volume-id "$VOLUME" >/dev/null
@@ -292,13 +266,7 @@ cleanup () {
         aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" >/dev/null
 
         debug_print "Waiting for instance to terminate"
-        while true; do
-            STATE=$(aws ec2 describe-instances --output text --instance-ids \
-                "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
-                | awk '{ print $3 }')
-            [ "$STATE" = "terminated" ] && break
-            sleep 1
-        done
+        aws ec2 wait instance-terminated --instance-ids "$INSTANCE_ID"
     fi
 
     if [ "$CREATED_KEYPAIR" -eq 1 ]; then
@@ -356,24 +324,12 @@ main () {
     fi
 
     debug_print "Waiting for instance to boot"
-    while true; do
-        STATE=$(aws ec2 describe-instances --output text --instance-ids \
-            "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
-            | awk '{ print $3 }')
-        [ "$STATE" = "running" ] && break
-        sleep 1
-    done
+    aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
 
     debug_print "Waiting for volume to attach to instance"
-    ATTACH_OUTPUT=$(aws ec2 attach-volume --output text --volume-id "$VOLUME"\
-        --instance-id "$INSTANCE_ID" --device /dev/sdf)
+    aws ec2 attach-volume --output text --volume-id "$VOLUME" --instance-id "$INSTANCE_ID" --device "$DEVICE" >/dev/null
+    aws ec2 wait volume-in-use --volume-ids "$VOLUME"
     VOLUME_ATTACHED=1
-    while true; do
-        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
-            --query 'Volumes[*].{State:State}')
-        [ "$STATE" = "in-use" ] && break
-        sleep 1
-    done
 
     INSTANCE_IP=$(aws ec2 describe-instances --output text --instance-ids \
         "$INSTANCE_ID" --query \
@@ -383,6 +339,7 @@ main () {
 
     debug_print "Cleaning up"
     cleanup
+
     echo "$VOLUME"
     exit 0
 }
