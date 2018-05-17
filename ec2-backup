@@ -255,7 +255,7 @@ cleanup () {
         aws ec2 detach-volume --volume-id "$VOLUME" >/dev/null
 
         debug_print "Waiting for volume to detach"
-        aws ec2 wait volume-available "$VOLUME"
+        aws ec2 wait volume-available --volume-ids "$VOLUME"
 
         if [ "$CREATED_VOLUME" -eq 1 ] && [ -n "$1" ]; then
             aws ec2 delete-volume --volume-id "$VOLUME" >/dev/null
