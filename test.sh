@@ -65,7 +65,7 @@ while true; do
     fi
 
     printf '%s' 'Test 4: checking valid backup...'
-    mkdir dir
+    mkdir -p dir
     echo 'Hello World.' > dir/file
     if OUTPUT=$($EXE dir); then
         #TODO check file exists on volume saved in OUTPUT
@@ -75,15 +75,7 @@ while true; do
         break
     fi
 
-    printf '%s' 'Test 5: checking invalid local filter...'
-    if ! $EXE -l 'notacommand -' dir; then
-        echo 'Success'
-    else
-        echo 'Failed'
-        break
-    fi
-
-    printf '%s' 'Test 6: checking valid local filter...'
+    printf '%s' 'Test 5: checking valid local filter...'
     if OUTPUT=$($EXE -l 'tar -czf -' dir); then
         #TODO check file exists on volume saved in OUTPUT
         echo 'Success'
@@ -92,7 +84,7 @@ while true; do
         break
     fi
 
-    printf '%s' 'Test 7: checking valid local and remote filters...'
+    printf '%s' 'Test 6: checking valid local and remote filters...'
     if OUTPUT=$($EXE -l 'tar -czf -' -r 'tar -xzf -' dir); then
         #TODO check file exists on volume saved in OUTPUT
         echo 'Success'

@@ -16,7 +16,7 @@ LOCAL_FILTER="cat -"
 REMOTE_FILTER="cat -"
 DIR=""
 AVAILABILITY_ZONE=""
-EC2_AMI="ami-bc8fc8d6"
+EC2_AMI="ami-0b2c7fd1c1f7e91d6"
 
 # Parameters for `aws ec2 run-instances`
 EC2_PARAMETERS=""
@@ -116,7 +116,7 @@ create_security_group () {
     if echo "$SG_ID" | grep -q "error"; then
         echoerr "Security group $SG_NAME already exists."
         echoerr "Please delete this group, or specify a security group with '--security-groups' or '--security-group-ids'"
-        cleanup
+        cleanup error
         exit 1
     fi
 
@@ -131,7 +131,7 @@ generate_ssh_key () {
     if echo "$OUTPUT" | grep -q "error"; then
         echoerr "Unable to create SSH key ec2-backup"
         echoerr "Please delete this keypair, or specify '--key-name'"
-        cleanup
+        cleanup error
         exit 1
     fi
 
@@ -191,7 +191,7 @@ process_ec2_parameters () {
 
 process_ssh_parameters () {
     if [ ! -z "$EC2_BACKUP_FLAGS_SSH" ]; then
-        if "$CREATED_KEYPAIR" && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
+        if [ "$CREATED_KEYPAIR" -eq 1 ] && ! not_in_string "$EC2_BACKUP_FLAGS_SSH" "-i"; then
             echoerr "-i was provided, but --key-name was not"
             echoerr "Ignoring EC2_BACKUP_FLAGS_SSH"
             EC2_BACKUP_FLAGS_SSH=""
@@ -211,36 +211,46 @@ not_in_string () {
 }
 
 cleanup () {
-    aws ec2 detach-volume --volume-id "$VOLUME"
+    # NOTE: if this is cleaning up from an error $1 should be provided, it
+    # doesn't matter what it's value is, this allows us to also delete a volume
+    # we may have created in the case of an error
 
-    debug_print "Waiting for volume to detach"
-    while true; do
-        STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
-            --query 'Volumes[*].{State:State}')
-        [ "$STATE" = "available" ] && break
-        sleep 1
-    done
+    if [ -n "$VOLUME" ]; then
+        aws ec2 detach-volume --volume-id "$VOLUME" 2>/dev/null
 
-    if [ ! "$INSTANCE_ID" = "" ]; then
-        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
+        debug_print "Waiting for volume to detach"
+        while true; do
+            STATE=$(aws ec2 describe-volumes --output text --volume-ids "$VOLUME"\
+                --query 'Volumes[*].{State:State}')
+            [ "$STATE" = "available" ] && break
+            sleep 1
+        done
+
+        if [ "$CREATED_VOLUME" -eq 1 ] && [ -n "$1" ]; then
+            aws ec2 delete-volume --volume-id "$VOLUME"
+        fi
     fi
 
-    debug_print "Waiting for instance to terminate"
-    while true; do
-        STATE=$(aws ec2 describe-instances --output text --instance-ids \
-            "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
-            | awk '{ print $3 }')
-        [ "$STATE" = "terminated" ] && break
-        sleep 1
-    done
+    if [ -n "$INSTANCE_ID" ]; then
+        aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
 
-    if "$CREATED_KEYPAIR"; then
+        debug_print "Waiting for instance to terminate"
+        while true; do
+            STATE=$(aws ec2 describe-instances --output text --instance-ids \
+                "$INSTANCE_ID" --query 'Reservations[*].Instances[*].{State:State}'\
+                | awk '{ print $3 }')
+            [ "$STATE" = "terminated" ] && break
+            sleep 1
+        done
+    fi
+
+    if [ "$CREATED_KEYPAIR" -eq 1 ]; then
         debug_print "Deleting generated keypair"
-        rm -f "$SSH_KEYFILE_NAME" &>/dev/null 2>&1
+        rm -f "$SSH_KEYFILE_NAME" >/dev/null 2>&1
         aws ec2 delete-key-pair --key-name "$SSH_KEY_NAME"
     fi
 
-    if "$CREATED_SECURITY_GROUP"; then
+    if [ "$CREATED_SECURITY_GROUP" -eq 1 ]; then
         debug_print "Deleting generated security group"
         aws ec2 delete-security-group --group-id "$SG_ID"
     fi
@@ -265,6 +275,7 @@ main () {
             | sed '1q;d' | awk '{ print $4 }')
         OUTPUT=$(aws ec2 create-volume --output text --availability-zone \
             "$AVAILABILITY_ZONE" --size "$SIZE")
+        CREATED_VOLUME=1
         VOLUME=$(echo "$OUTPUT" | awk '{ print $6 }')
     else
         debug_print "Validating provided volume ID"
@@ -274,13 +285,16 @@ main () {
     debug_print "Starting EC2 instance"
     add_parameter "--placement AvailabilityZone=$AVAILABILITY_ZONE"
     add_parameter "--output text"
-    INSTANCE_ID=$(aws ec2 run-instances "$EC2_PARAMETERS" "$EC2_BACKUP_FLAGS_AWS" \
+    #shellcheck disable=SC2086
+    # EC2_PARAMETERS and EC2_BACKUP_FLAGS_AWS need to expand here otherwise the
+    # aws command will fail
+    INSTANCE_ID=$(aws ec2 run-instances $EC2_PARAMETERS $EC2_BACKUP_FLAGS_AWS \
         | awk 'FNR == 2 { print $7 }')
 
-    if [ "$INSTANCE_ID" = "" ]; then
+    if [ -z "$INSTANCE_ID" ]; then
         echoerr "Failed to start instance"
-        cleanup
-        exit "$?"
+        cleanup error
+        exit 1
     fi
 
     debug_print "Waiting for instance to boot"
@@ -309,17 +323,27 @@ main () {
 
     debug_print "Executing backup"
     if [ "$SSH_PARAMETERS" = "" ]; then
+        #shellcheck disable=SC2029
+        # We want REMOTE_FILTER and DEVICE to expand on the local side because
+        # that is the only side they will be defined on
         tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh "$SSH_PARAMETERS" "$INSTANCE_IP" \
+        #shellcheck disable=SC2086 disable=SC2029
+        # SSH_PARAMETERS needs to expand for ssh to work properly, and
+        # REMOTE_FILTER and DEVICE are the same as above
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $SSH_PARAMETERS "$INSTANCE_IP" \
             "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
+    #shellcheck disable=SC2181
+    # Ignoring this because it would be a bit cumbersome to wrap both ssh
+    # commands, this should work fine as long as nothing is executed between the
+    # ssh commands and this statement
     if [ "$?" -ne 0 ]; then
         echoerr "SSH command failed"
-        cleanup
-        exit "$?"
+        cleanup error
+        exit 1
     fi
 
     debug_print "Cleaning up"
