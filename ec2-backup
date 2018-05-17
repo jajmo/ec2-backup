@@ -222,28 +222,31 @@ do_backup () {
     debug_print "Waiting for SSH to be ready"
     while true; do
         # TODO: Verify this using `get-console-output` instead of grepping for errors
-        if [ "$SSH_PARAMETERS" = "" ]; then
+        if [ -z "$SSH_PARAMETERS" ]; then
+            #shellcheck disable=SC2086
             ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" "exit" 2>&1 | grep -vq 'Connection refused'
         else
+            #shellcheck disable=SC2086
             ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" "exit" 2>&1 | grep -vq 'Connection refused'
         fi
+        #shellcheck disable=SC2181
         [ "$?" -eq 0 ] && break
         sleep 2
     done
 
     debug_print "Executing backup"
-    if [ "$SSH_PARAMETERS" = "" ]; then
-        #shellcheck disable=SC2029
+    if [ -z "$SSH_PARAMETERS" ]; then
+        #shellcheck disable=SC2086 disable=SC2029
         # We want REMOTE_FILTER and DEVICE to expand on the local side because
         # that is the only side they will be defined on
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS "$INSTANCE_IP" \
-            "$REMOTE_FILTER | dd of=\"$DEVICE\""
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS \
+            "$INSTANCE_IP" "$REMOTE_FILTER | dd of=\"$DEVICE\""
     else
         #shellcheck disable=SC2086 disable=SC2029
         # SSH_PARAMETERS needs to expand for ssh to work properly, and
         # REMOTE_FILTER and DEVICE are the same as above
-        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS $SSH_PARAMETERS "$INSTANCE_IP" \
-            "$REMOTE_FILTER | dd of=\"$DEVICE\""
+        tar cf - "$DIR" | eval "$LOCAL_FILTER" | ssh $DEFAULT_SSH_PARAMETERS \
+            $SSH_PARAMETERS "$INSTANCE_IP" "$REMOTE_FILTER | dd of=\"$DEVICE\""
     fi
 
     #shellcheck disable=SC2181
@@ -266,7 +269,7 @@ cleanup () {
 
         # TODO: I had to force detach from the web UI a few times. Maybe print an
         # error if it's taking too long and tell the user to force detach?
-        aws ec2 detach-volume --volume-id "$VOLUME" >/dev/null 
+        aws ec2 detach-volume --volume-id "$VOLUME" >/dev/null
 
         debug_print "Waiting for volume to detach"
         while true; do
@@ -277,7 +280,7 @@ cleanup () {
         done
 
         if [ "$CREATED_VOLUME" -eq 1 ] && [ -n "$1" ]; then
-            aws ec2 delete-volume --volume-id "$VOLUME" >/dev/null 
+            aws ec2 delete-volume --volume-id "$VOLUME" >/dev/null
         fi
     fi
 
